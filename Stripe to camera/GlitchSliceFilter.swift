@@ -54,25 +54,25 @@ final class GlitchSliceFilter: CIFilter {
         let tx = CGAffineTransform(translationX: CGFloat(time.doubleValue * 40.0), y: 0)
         let animatedNoise = bandNoise.transformed(by: tx)
 
-        // 4) 強さレンジ（minXSpan〜maxXSpan）を近似スケーリング
-        //    p5のバイアス（spanPowerX）を反映する代替として、コントラストとバイアスで分布を片寄らせる
-        let spanAvg = CGFloat((minXSpan.doubleValue + maxXSpan.doubleValue) * 0.5)
-        let baseScale = CGFloat((minXSpan.doubleValue + maxXSpan.doubleValue) * 6.0)
+        // 4) 強さレンジ（minXSpan〜maxXSpan）を0.5中心に再マッピング
+        //    CIDisplacementDistortion は 0.5 が中立。red=0.5±(振幅) となるよう調整する
+        let baseScale = CGFloat((minXSpan.doubleValue + maxXSpan.doubleValue) * 3.0)
+        let amplitude = max(0.05, min(0.49, baseScale / 10.0)) // 0.5±amplitude に収める
 
-        // コントラスト強調で「薄い帯が多く・強い帯が少し」な分布に寄せる
+        // コントラスト強調で「薄い帯が多く・強い帯が少し」な分布に寄せる（p5のbiasの近似）
         let controls = CIFilter.colorControls()
         controls.inputImage = animatedNoise
         controls.contrast = Float(max(1.0, spanPowerX.doubleValue))
         let contrasted = (controls.outputImage ?? animatedNoise).cropped(to: extent)
 
-        // 赤ch＝横変位、緑=0（縦変位なし）
+        // 赤= 0.5 + (R-0.5)*amplitude、緑= 常に0.5（縦変位なし）
         let matrix = CIFilter.colorMatrix()
         matrix.inputImage = contrasted
-        matrix.rVector = CIVector(x: baseScale, y: 0, z: 0, w: 0)
+        matrix.rVector = CIVector(x: amplitude, y: 0, z: 0, w: 0)
         matrix.gVector = CIVector(x: 0, y: 0, z: 0, w: 0)
         matrix.bVector = CIVector(x: 0, y: 0, z: 0, w: 0)
         matrix.aVector = CIVector(x: 0, y: 0, z: 0, w: 1)
-        matrix.biasVector = CIVector(x: -baseScale/2, y: 0, z: 0, w: 0)
+        matrix.biasVector = CIVector(x: 0.5 - amplitude/2, y: 0.5, z: 0, w: 0)
         var displacement = matrix.outputImage!.cropped(to: extent)
 
         // 大スライス（低周波マスク）を加算的に重畳（近似）
@@ -83,12 +83,12 @@ final class GlitchSliceFilter: CIFilter {
 
         let bigMatrix = CIFilter.colorMatrix()
         bigMatrix.inputImage = lowFreq
-        let bigScale = baseScale * CGFloat(max(1.0, numBigSlices.doubleValue / 3.0))
-        bigMatrix.rVector = CIVector(x: bigScale, y: 0, z: 0, w: 0)
+        let bigAmp = min(0.49, amplitude * CGFloat(max(1.0, numBigSlices.doubleValue / 3.0)))
+        bigMatrix.rVector = CIVector(x: bigAmp, y: 0, z: 0, w: 0)
         bigMatrix.gVector = CIVector(x: 0, y: 0, z: 0, w: 0)
         bigMatrix.bVector = CIVector(x: 0, y: 0, z: 0, w: 0)
         bigMatrix.aVector = CIVector(x: 0, y: 0, z: 0, w: 1)
-        bigMatrix.biasVector = CIVector(x: -bigScale/2, y: 0, z: 0, w: 0)
+        bigMatrix.biasVector = CIVector(x: 0.5 - bigAmp/2, y: 0.5, z: 0, w: 0)
         let bigDisp = bigMatrix.outputImage!.cropped(to: extent)
 
         let add = CIFilter.additionCompositing()
@@ -96,12 +96,12 @@ final class GlitchSliceFilter: CIFilter {
         add.backgroundImage = bigDisp
         displacement = (add.outputImage ?? displacement).cropped(to: extent)
 
-        // 右方向のみ（負の変位をカット）
+        // 右方向のみ（赤を0.5以上にクランプ）
         if biasRightOnly.intValue == 1 {
             let clamp = CIFilter.colorClamp()
             clamp.inputImage = displacement
-            clamp.minComponents = CIVector(x: 0, y: 0, z: 0, w: 0)
-            clamp.maxComponents = CIVector(x: 1, y: 0, z: 0, w: 1)
+            clamp.minComponents = CIVector(x: 0.5, y: 0.5, z: 0, w: 0)
+            clamp.maxComponents = CIVector(x: 1.0, y: 0.5, z: 0, w: 1)
             displacement = clamp.outputImage!.cropped(to: extent)
         }
 
@@ -109,28 +109,12 @@ final class GlitchSliceFilter: CIFilter {
         let disp = CIFilter.displacementDistortion()
         disp.inputImage = input
         disp.displacementImage = displacement
-        disp.scale = 1.0                                   // 既にmatrixでスケール済み
+        disp.scale = 80.0                                   // 効果を視認しやすく強める
         let displaced = disp.outputImage?.cropped(to: extent) ?? input
 
         // 6) わずかな伸縮感：y方向に微弱なディストーション（ほぼわからない程度）
         //    Gチャンネルに小さなノイズを入れて再度軽く適用（好みに応じて0でもOK）
-        let tinyYNoise = (CIFilter.randomGenerator().outputImage!
-            .cropped(to: extent))
-            .applyingFilter("CIGaussianBlur", parameters: ["inputRadius": 4.0])
-
-        let yMatrix = CIFilter.colorMatrix()
-        yMatrix.inputImage = tinyYNoise
-        yMatrix.rVector = CIVector(x: 0, y: 0, z: 0, w: 0)                    // R=0（横なし）
-        yMatrix.gVector = CIVector(x: 0, y: 0.02, z: 0, w: 0)                 // G=微小（縦±）
-        yMatrix.biasVector = CIVector(x: 0, y: -0.01, z: 0, w: 0)
-
-        let yDisplacement = yMatrix.outputImage!.cropped(to: extent)
-
-        let disp2 = CIFilter.displacementDistortion()
-        disp2.inputImage = displaced
-        disp2.displacementImage = yDisplacement
-        disp2.scale = 1.0
-
-        return disp2.outputImage?.cropped(to: extent) ?? displaced
+        // 縦変位は行わない（緑=0.5固定のため）
+        return displaced
     }
 }
