@@ -7,9 +7,10 @@ struct ContentView: View {
     @State private var flashPreview: UIImage?
     @State private var showFiltered = true
     @State private var toggleTimer: Timer?
+    @State private var filterNameHUD: String = "stripe001"
 
     var body: some View {
-        ZStack {
+        ZStack(alignment: .bottom) {
             if showFiltered, let frame = camera.filteredImage {
                 Image(uiImage: frame)
                     .resizable()
@@ -24,26 +25,53 @@ struct ContentView: View {
                 Color.black.ignoresSafeArea()
             }
 
-            VStack {
-                Spacer()
-                Button {
-                    // シャッター演出: ブラックアウト → 復帰 → 撮影フレームを一瞬表示
-                    blackout = true
-                    camera.captureStill()
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) {
-                        blackout = false
-                        flashPreview = camera.capturedImage
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            // ブラックアウト演出
+            Color.black
+                .opacity(blackout ? 1.0 : 0.0)
+                .ignoresSafeArea()
+
+            // 一瞬のプレビュー
+            if let shot = flashPreview {
+                Image(uiImage: shot)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: UIScreen.main.bounds.width * 0.55)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .shadow(radius: 10)
+                    .padding(.bottom, 120)
+                    .transition(.opacity)
+            }
+
+            // フィルター名HUD
+            Text(filterNameHUD)
+                .font(.caption)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(.black.opacity(0.35))
+                .foregroundStyle(.white)
+                .clipShape(Capsule())
+                .padding(.bottom, 8)
+
+            // 撮影ボタン
+            Button {
+                // シャッター演出: ブラックアウト → 復帰 → 撮影フレームを一瞬表示
+                blackout = true
+                camera.captureStill()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) {
+                    blackout = false
+                    flashPreview = camera.capturedImage
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                        withAnimation(.easeOut(duration: 0.18)) {
                             flashPreview = nil
                         }
                     }
-                } label: {
-                    Circle()
-                        .strokeBorder(.white, lineWidth: 6)
-                        .frame(width: 82, height: 82)
-                        .overlay(Circle().fill(.white.opacity(0.2)).frame(width: 70, height: 70))
-                        .padding(.bottom, 32)
                 }
+            } label: {
+                Circle()
+                    .strokeBorder(.white, lineWidth: 6)
+                    .frame(width: 82, height: 82)
+                    .overlay(Circle().fill(.white.opacity(0.2)).frame(width: 70, height: 70))
+                    .padding(.bottom, 32)
             }
         }
         .onAppear {
@@ -76,6 +104,11 @@ struct ContentView: View {
                     .shadow(radius: 10)
                     .transition(.opacity)
             }
+        }
+        // ダブルタップでstripe001/stripe002切替
+        .onTapGesture(count: 2) {
+            camera.useStripe001.toggle()
+            filterNameHUD = camera.useStripe001 ? "stripe001" : "stripe002"
         }
     }
 }

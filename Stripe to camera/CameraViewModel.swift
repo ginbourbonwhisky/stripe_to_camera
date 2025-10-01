@@ -15,10 +15,26 @@ final class CameraViewModel: NSObject, ObservableObject {
     private let videoOutput = AVCaptureVideoDataOutput()
     private let queue = DispatchQueue(label: "video.sample.buffer")
 
-    // p5風 行セグメント効果のパラメータ
-    private let brightnessThreshold: Float = 28   // 下げて検出を増やす
-    private let saturationThreshold: Float = 35   // 下げて検出を増やす
-    private let yDivisions: Int = 110             // 帯を細く・本数増加
+    // stripe001: 行セグメント（明度/彩度差分で横方向に再構成）
+    // - 調整ポイント:
+    //   brightnessThreshold: 明度差のしきい値（下げる=検出増）
+    //   saturationThreshold: 彩度差のしきい値（下げる=検出増）
+    //   yDivisions: 帯の本数（上げる=細く/重い, 下げる=太く/軽い）
+    private let brightnessThreshold: Float = 28
+    private let saturationThreshold: Float = 35
+    private let yDivisions: Int = 110
+
+    // stripe002: 縦帯分割（仮想xをランダム分割して左端の色で塗る）
+    // - 調整ポイント:
+    //   targetBands: 帯の本数（例: 50）。増やす=細かく/重い
+    //   borderAlpha: 境界の見せ方（0=非表示, 0.0〜1.0）
+    private let targetBands002: Int = 50
+    private let borderAlpha002: CGFloat = 0.0
+    private var xVirtualPoints002: [CGFloat] = []   // -10..+10 の内部点
+    private var didSeedStripe002 = false
+
+    // フィルタ切替: true=stripe001, false=stripe002（必要ならUI側から切替）
+    var useStripe001: Bool = true
 
     override init() {
         super.init()
@@ -154,18 +170,30 @@ extension CameraViewModel: AVCaptureVideoDataOutputSampleBufferDelegate {
 
         let ui = UIImage(cgImage: cg, scale: UIScreen.main.scale, orientation: .up)
 
-        // 明度/彩度の変化で横方向にセグメント化して矩形塗り
-        if let banded = applyRowSegmentEffect(to: ui,
-                                              brightnessThreshold: brightnessThreshold,
-                                              saturationThreshold: saturationThreshold,
-                                              yDivisions: yDivisions) {
-            DispatchQueue.main.async {
-            self.originalImage = original
-            self.filteredImage = banded
+        if useStripe001 {
+            // stripe001: 明度/彩度の変化で横方向にセグメント化
+            if let banded = applyRowSegmentEffect(to: ui,
+                                                  brightnessThreshold: brightnessThreshold,
+                                                  saturationThreshold: saturationThreshold,
+                                                  yDivisions: yDivisions) {
+                DispatchQueue.main.async {
+                    self.originalImage = original
+                    self.filteredImage = banded
+                }
+                return
             }
-            return
+        } else {
+            // stripe002: ランダム分割の縦帯（左端色で塗る）
+            if let banded = applyVerticalBandEffect002(to: ui,
+                                                       targetBands: targetBands002,
+                                                       borderAlpha: borderAlpha002) {
+                DispatchQueue.main.async {
+                    self.originalImage = original
+                    self.filteredImage = banded
+                }
+                return
+            }
         }
-
         DispatchQueue.main.async {
             self.originalImage = original
             self.filteredImage = ui
@@ -301,5 +329,88 @@ private extension CameraViewModel {
             if hue < 0 { hue += 1 }
         }
         return (hue, saturation, brightness)
+    }
+
+    // MARK: - stripe002 縦帯分割（ランダムな仮想xの内部点で分割し、左端色で塗る）
+    func applyVerticalBandEffect002(to image: UIImage,
+                                    targetBands: Int,
+                                    borderAlpha: CGFloat) -> UIImage? {
+        guard let cgImage = image.cgImage else { return nil }
+        let width = cgImage.width
+        let height = cgImage.height
+
+        // 入力ピクセルRGBA8
+        guard let inData = copyRGBAData(from: cgImage) else { return nil }
+
+        // 初期化: 仮想xの内部点をランダム生成（-10..+10）
+        if !didSeedStripe002 || xVirtualPoints002.isEmpty {
+            let internalPoints = max(0, targetBands - 1)
+            var pts: [CGFloat] = []
+            pts.reserveCapacity(internalPoints)
+            for _ in 0..<internalPoints {
+                let v = CGFloat.random(in: -10...10)
+                pts.append(v)
+            }
+            pts.sort()
+            xVirtualPoints002 = pts
+            didSeedStripe002 = true
+        }
+
+        // 出力コンテキスト（上原点に反転）
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        guard let ctx = CGContext(data: nil,
+                                  width: width,
+                                  height: height,
+                                  bitsPerComponent: 8,
+                                  bytesPerRow: width * 4,
+                                  space: colorSpace,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        ctx.translateBy(x: 0, y: CGFloat(height))
+        ctx.scaleBy(x: 1, y: -1)
+
+        // 分割点（端点を追加）
+        var points: [CGFloat] = [-10]
+        points.append(contentsOf: xVirtualPoints002)
+        points.append(10)
+
+        for i in 0..<(points.count - 1) {
+            let xStartVirt = points[i]
+            let xEndVirt = points[i + 1]
+
+            // 左端の色（xImg）
+            let xImgVirt = xStartVirt
+            let xImg = max(0, min(width - 1, Int((xImgVirt + 10) / 20 * CGFloat(width - 1))))
+
+            let xStartPx = (xStartVirt + 10) / 20 * CGFloat(width)
+            let xEndPx = (xEndVirt + 10) / 20 * CGFloat(width)
+            let bandW = xEndPx - xStartPx
+
+            // 帯塗り（1pxずつ縦に）
+            for y in 0..<height {
+                let colorRGB = rgbAt(inData: inData, x: xImg, y: y, width: width)
+                ctx.setFillColor(CGColor(
+                    srgbRed: CGFloat(colorRGB.r) / 255.0,
+                    green: CGFloat(colorRGB.g) / 255.0,
+                    blue: CGFloat(colorRGB.b) / 255.0,
+                    alpha: 1.0
+                ))
+                ctx.fill(CGRect(x: xStartPx, y: CGFloat(y), width: bandW, height: 1))
+            }
+
+            // 境界線（オプション）
+            if borderAlpha > 0 && i < points.count - 2 {
+                let midY = height / 2
+                let edgeRGB = rgbAt(inData: inData, x: xImg, y: midY, width: width)
+                let r = CGFloat(edgeRGB.r) * 0.6 / 255.0
+                let g = CGFloat(edgeRGB.g) * 0.6 / 255.0
+                let b = CGFloat(edgeRGB.b) * 0.6 / 255.0
+                ctx.setStrokeColor(CGColor(srgbRed: r, green: g, blue: b, alpha: borderAlpha))
+                ctx.setLineWidth(1)
+                ctx.stroke(CGRect(x: xEndPx, y: 0, width: 0, height: CGFloat(height)))
+            }
+        }
+
+        guard let outCG = ctx.makeImage() else { return nil }
+        return UIImage(cgImage: outCG, scale: image.scale, orientation: .up)
     }
 }
