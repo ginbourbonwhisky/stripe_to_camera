@@ -5,11 +5,18 @@ struct ContentView: View {
     @State private var showPreview = false
     @State private var blackout = false
     @State private var flashPreview: UIImage?
+    @State private var showFiltered = true
+    @State private var toggleTimer: Timer?
 
     var body: some View {
         ZStack {
-            if let frame = camera.filteredImage {
+            if showFiltered, let frame = camera.filteredImage {
                 Image(uiImage: frame)
+                    .resizable()
+                    .scaledToFill()
+                    .ignoresSafeArea()
+            } else if let raw = camera.originalImage {
+                Image(uiImage: raw)
                     .resizable()
                     .scaledToFill()
                     .ignoresSafeArea()
@@ -39,8 +46,19 @@ struct ContentView: View {
                 }
             }
         }
-        .onAppear { camera.start() }
-        .onDisappear { camera.stop() }
+        .onAppear {
+            camera.start()
+            toggleTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    showFiltered.toggle()
+                }
+            }
+        }
+        .onDisappear {
+            camera.stop()
+            toggleTimer?.invalidate()
+            toggleTimer = nil
+        }
         .overlay {
             // ブラックアウト層
             if blackout {

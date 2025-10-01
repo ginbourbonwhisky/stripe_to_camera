@@ -6,6 +6,7 @@ import Photos
 final class CameraViewModel: NSObject, ObservableObject {
     @Published var filteredImage: UIImage?
     @Published var capturedImage: UIImage?
+    @Published var originalImage: UIImage?
 
     private let session = AVCaptureSession()
     private let context = CIContext()
@@ -137,8 +138,19 @@ extension CameraViewModel: AVCaptureVideoDataOutputSampleBufferDelegate {
         glitch.biasRightOnly = 1
         glitch.time = CACurrentMediaTime() as NSNumber
 
+        // オリジナル（フィルタ無）UI画像
+        let baseCI = ciInput
+        guard let baseCG = context.createCGImage(baseCI, from: baseCI.extent) else { return }
+        let original = UIImage(cgImage: baseCG, scale: UIScreen.main.scale, orientation: .up)
+
+        // フィルタ適用後
         guard let ciOut = glitch.outputImage,
-              let cg = context.createCGImage(ciOut, from: ciOut.extent) else { return }
+              let cg = context.createCGImage(ciOut, from: ciOut.extent) else {
+            DispatchQueue.main.async {
+                self.originalImage = original
+            }
+            return
+        }
 
         let ui = UIImage(cgImage: cg, scale: UIScreen.main.scale, orientation: .up)
 
@@ -148,12 +160,14 @@ extension CameraViewModel: AVCaptureVideoDataOutputSampleBufferDelegate {
                                               saturationThreshold: saturationThreshold,
                                               yDivisions: yDivisions) {
             DispatchQueue.main.async {
-                self.filteredImage = banded
+            self.originalImage = original
+            self.filteredImage = banded
             }
             return
         }
 
         DispatchQueue.main.async {
+            self.originalImage = original
             self.filteredImage = ui
         }
     }
