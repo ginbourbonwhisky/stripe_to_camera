@@ -119,14 +119,17 @@ extension CameraViewModel: AVCaptureVideoDataOutputSampleBufferDelegate {
         guard let buffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         let ciInput = CIImage(cvPixelBuffer: buffer) // ← もう回転しない
 
-        // フィルター適用
+        // フィルター適用（p5相当のパラメータを設定）
         glitch.inputImage = ciInput
-        glitch.sliceCount = 120
-        glitch.bigSliceCount = 3
+        glitch.numOverlays = 120
+        glitch.numBigSlices = 3
         glitch.minXSpan = 0.6
         glitch.maxXSpan = 5.0
         glitch.minYSpan = 0.6
         glitch.maxYSpan = 4.0
+        glitch.spanPowerX = 2.5
+        glitch.spanPowerY = 2.0
+        glitch.biasRightOnly = 1
         glitch.time = CACurrentMediaTime() as NSNumber
 
         guard let ciOut = glitch.outputImage,
