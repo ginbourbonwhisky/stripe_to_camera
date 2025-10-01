@@ -11,8 +11,14 @@ struct ContentView: View {
     @State private var dragAccumX: CGFloat = 0
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            if showFiltered, let frame = camera.filteredImage {
+            ZStack(alignment: .bottom) {
+                // stripe002使用時は常にフィルター画像を表示
+                if (!camera.useStripe001), let frame = camera.filteredImage {
+                    Image(uiImage: frame)
+                        .resizable()
+                        .scaledToFill()
+                        .ignoresSafeArea()
+                } else if showFiltered, let frame = camera.filteredImage {
                 Image(uiImage: frame)
                     .resizable()
                     .scaledToFill()

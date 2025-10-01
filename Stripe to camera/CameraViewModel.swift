@@ -26,15 +26,27 @@ final class CameraViewModel: NSObject, ObservableObject {
 
     // stripe002: 縦帯分割（仮想xをランダム分割して左端の色で塗る）
     // - 調整ポイント:
-    //   targetBands: 帯の本数（例: 50）。増やす=細かく/重い
-    //   borderAlpha: 境界の見せ方（0=非表示, 0.0〜1.0）
-    private let targetBands002: Int = 50
+    //   targetBands002: 帯の本数（増やす=細かく/重い）
+    //   borderAlpha002: 境界の見せ方（0=非表示, 0.0〜1.0）
+    //   素数アニメ: 1.5秒ごとに [0,2,3,5,7,11,13,17,19,23,29,31,37,41,43,47,53] を循環
+    private var targetBands002: Int = 0
     private let borderAlpha002: CGFloat = 0.0
     private var xVirtualPoints002: [CGFloat] = []   // -10..+10 の内部点
     private var didSeedStripe002 = false
+    private var stripe002Timer: Timer?
+    private let stripe002Primes: [Int] = [0,2,3,5,7,11,13,17,19,23,29,31,37,41,43,47,53]
+    private var stripe002Index: Int = 0
 
     // フィルタ切替: true=stripe001, false=stripe002（必要ならUI側から切替）
-    var useStripe001: Bool = true
+    var useStripe001: Bool = true {
+        didSet {
+            if useStripe001 {
+                stopStripe002Timer()
+            } else {
+                startStripe002Timer()
+            }
+        }
+    }
 
     override init() {
         super.init()
@@ -187,8 +199,9 @@ extension CameraViewModel: AVCaptureVideoDataOutputSampleBufferDelegate {
             if let banded = applyVerticalBandEffect002(to: ui,
                                                        targetBands: targetBands002,
                                                        borderAlpha: borderAlpha002) {
+                // stripe002ではオリジナル切替なし（常にフィルターを表示）
                 DispatchQueue.main.async {
-                    self.originalImage = original
+                    self.originalImage = nil
                     self.filteredImage = banded
                 }
                 return
@@ -203,6 +216,25 @@ extension CameraViewModel: AVCaptureVideoDataOutputSampleBufferDelegate {
 
 // MARK: - p5風 行セグメント効果（CPU描画）
 private extension CameraViewModel {
+    // stripe002 素数アニメーション管理
+    func startStripe002Timer() {
+        stopStripe002Timer()
+        stripe002Index = 0
+        targetBands002 = stripe002Primes[stripe002Index]
+        stripe002Timer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+            self.stripe002Index = (self.stripe002Index + 1) % self.stripe002Primes.count
+            self.targetBands002 = self.stripe002Primes[self.stripe002Index]
+        }
+        RunLoop.main.add(stripe002Timer!, forMode: .common)
+    }
+
+    func stopStripe002Timer() {
+        stripe002Timer?.invalidate()
+        stripe002Timer = nil
+        stripe002Index = 0
+        targetBands002 = 0
+    }
     func applyRowSegmentEffect(to image: UIImage,
                                brightnessThreshold: Float,
                                saturationThreshold: Float,
