@@ -16,17 +16,17 @@ struct ContentView: View {
                 if (!camera.useStripe001), let frame = camera.filteredImage {
                     Image(uiImage: frame)
                         .resizable()
-                        .scaledToFill()
+                        .scaledToFit()
                         .ignoresSafeArea()
                 } else if showFiltered, let frame = camera.filteredImage {
                 Image(uiImage: frame)
                     .resizable()
-                    .scaledToFill()
+                        .scaledToFit()
                     .ignoresSafeArea()
             } else if let raw = camera.originalImage {
                 Image(uiImage: raw)
                     .resizable()
-                    .scaledToFill()
+                        .scaledToFit()
                     .ignoresSafeArea()
             } else {
                 Color.black.ignoresSafeArea()

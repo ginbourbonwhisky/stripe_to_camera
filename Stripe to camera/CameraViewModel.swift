@@ -32,6 +32,7 @@ final class CameraViewModel: NSObject, ObservableObject {
     private var targetBands002: Int = 0
     private let borderAlpha002: CGFloat = 0.0
     private var xVirtualPoints002: [CGFloat] = []   // -10..+10 の内部点
+    private var lastTargetBands002: Int = -1
     private var didSeedStripe002 = false
     private var stripe002Timer: Timer?
     private let stripe002Primes: [Int] = [0,2,3,5,7,11,13,17,19,23,29,31,37,41,43,47,53]
@@ -374,8 +375,13 @@ private extension CameraViewModel {
         // 入力ピクセルRGBA8
         guard let inData = copyRGBAData(from: cgImage) else { return nil }
 
-        // 初期化: 仮想xの内部点をランダム生成（-10..+10）
-        if !didSeedStripe002 || xVirtualPoints002.isEmpty {
+        // 0分割のときはオリジナルをそのまま返す（見た目のニュートラル）
+        if targetBands <= 0 {
+            return image
+        }
+
+        // 分割点の再生成: targetBandsが変わったら毎回更新
+        if !didSeedStripe002 || xVirtualPoints002.isEmpty || lastTargetBands002 != targetBands {
             let internalPoints = max(0, targetBands - 1)
             var pts: [CGFloat] = []
             pts.reserveCapacity(internalPoints)
@@ -386,6 +392,7 @@ private extension CameraViewModel {
             pts.sort()
             xVirtualPoints002 = pts
             didSeedStripe002 = true
+            lastTargetBands002 = targetBands
         }
 
         // 出力コンテキスト（上原点に反転）
