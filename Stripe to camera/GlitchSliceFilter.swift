@@ -52,6 +52,8 @@ final class GlitchSliceFilter: CIFilter {
 
         // 3) アニメーション（timeでノイズを横に流す）
         let tx = CGAffineTransform(translationX: CGFloat(time.doubleValue * 40.0), y: 0)
+        // Core Image座標系は下原点。iOS表示は上原点なので縦方向の整合: 入力のまま扱い、
+        // 後段の行帯生成は縦方向の反転を行わない（p5同様、上が0）想定でx方向のみ使用
         let animatedNoise = bandNoise.transformed(by: tx)
 
         // 4) 強さレンジ（minXSpan〜maxXSpan）を0.5中心に再マッピング

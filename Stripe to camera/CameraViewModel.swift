@@ -16,9 +16,9 @@ final class CameraViewModel: NSObject, ObservableObject {
     private let queue = DispatchQueue(label: "video.sample.buffer")
 
     // p5風 行セグメント効果のパラメータ
-    private let brightnessThreshold: Float = 50
-    private let saturationThreshold: Float = 50
-    private let yDivisions: Int = 50
+    private let brightnessThreshold: Float = 28   // 下げて検出を増やす
+    private let saturationThreshold: Float = 35   // 下げて検出を増やす
+    private let yDivisions: Int = 110             // 帯を細く・本数増加
 
     override init() {
         super.init()
@@ -195,11 +195,15 @@ private extension CameraViewModel {
                                   bytesPerRow: width * 4,
                                   space: colorSpace,
                                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        // 上原点（UIKit準拠）に座標系を反転
+        ctx.translateBy(x: 0, y: CGFloat(height))
+        ctx.scaleBy(x: 1, y: -1)
 
         let bandHf = CGFloat(height) / CGFloat(max(1, yDivisions))
 
         // 各帯ごとに1ラインサンプリングし、分割点を求めて矩形で塗る
         for yi in 0..<max(1, yDivisions) {
+            // 上原点のままサンプリング（0=上端）
             let yImg = min(height - 1, Int((Float(yi) + 0.5) / Float(yDivisions) * Float(height)))
 
             // 先頭画素
@@ -235,7 +239,9 @@ private extension CameraViewModel {
                 ))
                 let xCanvas = CGFloat(xStart)
                 let bandW = CGFloat(xEnd - xStart)
-                ctx.fill(CGRect(x: xCanvas, y: CGFloat(yi) * bandHf, width: bandW, height: bandHf))
+                // 上原点でそのまま描画
+                let yCanvasTop = CGFloat(yi) * bandHf
+                ctx.fill(CGRect(x: xCanvas, y: yCanvasTop, width: bandW, height: bandHf))
             }
         }
 
