@@ -8,6 +8,7 @@ struct ContentView: View {
     @State private var showFiltered = true
     @State private var toggleTimer: Timer?
     @State private var filterNameHUD: String = "stripe001"
+    @State private var dragAccumX: CGFloat = 0
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -110,6 +111,24 @@ struct ContentView: View {
             camera.useStripe001.toggle()
             filterNameHUD = camera.useStripe001 ? "stripe001" : "stripe002"
         }
+        // 横スワイプで切替（左/右どちらでも閾値超でトグル）
+        .gesture(
+            DragGesture(minimumDistance: 16, coordinateSpace: .local)
+                .onChanged { value in
+                    dragAccumX += value.translation.width
+                }
+                .onEnded { _ in
+                    let threshold: CGFloat = 60
+                    if abs(dragAccumX) > threshold {
+                        camera.useStripe001.toggle()
+                        filterNameHUD = camera.useStripe001 ? "stripe001" : "stripe002"
+                        #if os(iOS)
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        #endif
+                    }
+                    dragAccumX = 0
+                }
+        )
     }
 }
 
