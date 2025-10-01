@@ -14,6 +14,11 @@ final class CameraViewModel: NSObject, ObservableObject {
     private let videoOutput = AVCaptureVideoDataOutput()
     private let queue = DispatchQueue(label: "video.sample.buffer")
 
+    // p5風 行セグメント効果のパラメータ
+    private let brightnessThreshold: Float = 50
+    private let saturationThreshold: Float = 50
+    private let yDivisions: Int = 50
+
     override init() {
         super.init()
         configureSession()
@@ -137,8 +142,144 @@ extension CameraViewModel: AVCaptureVideoDataOutputSampleBufferDelegate {
 
         let ui = UIImage(cgImage: cg, scale: UIScreen.main.scale, orientation: .up)
 
+        // 明度/彩度の変化で横方向にセグメント化して矩形塗り
+        if let banded = applyRowSegmentEffect(to: ui,
+                                              brightnessThreshold: brightnessThreshold,
+                                              saturationThreshold: saturationThreshold,
+                                              yDivisions: yDivisions) {
+            DispatchQueue.main.async {
+                self.filteredImage = banded
+            }
+            return
+        }
+
         DispatchQueue.main.async {
             self.filteredImage = ui
         }
+    }
+}
+
+// MARK: - p5風 行セグメント効果（CPU描画）
+private extension CameraViewModel {
+    func applyRowSegmentEffect(to image: UIImage,
+                               brightnessThreshold: Float,
+                               saturationThreshold: Float,
+                               yDivisions: Int) -> UIImage? {
+        guard let cgImage = image.cgImage else { return nil }
+        let width = cgImage.width
+        let height = cgImage.height
+
+        // 入力ピクセルをRGBA8で取得
+        guard let inData = copyRGBAData(from: cgImage) else { return nil }
+
+        // 出力コンテキスト
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        guard let ctx = CGContext(data: nil,
+                                  width: width,
+                                  height: height,
+                                  bitsPerComponent: 8,
+                                  bytesPerRow: width * 4,
+                                  space: colorSpace,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+
+        let bandHf = CGFloat(height) / CGFloat(max(1, yDivisions))
+
+        // 各帯ごとに1ラインサンプリングし、分割点を求めて矩形で塗る
+        for yi in 0..<max(1, yDivisions) {
+            let yImg = min(height - 1, Int((Float(yi) + 0.5) / Float(yDivisions) * Float(height)))
+
+            // 先頭画素
+            var prev = rgbAt(inData: inData, x: 0, y: yImg, width: width)
+            var prevHSB = rgbToHSB(prev)
+            var points: [Int] = [0]
+
+            if width > 1 {
+                for x in 1..<width {
+                    let cur = rgbAt(inData: inData, x: x, y: yImg, width: width)
+                    let curHSB = rgbToHSB(cur)
+                    let db = abs(curHSB.brightness - prevHSB.brightness) * 100.0
+                    let ds = abs(curHSB.saturation - prevHSB.saturation) * 100.0
+                    if db > brightnessThreshold || ds > saturationThreshold {
+                        points.append(x)
+                        prev = cur
+                        prevHSB = curHSB
+                    }
+                }
+            }
+            points.append(width)
+
+            // 区間を矩形で描く
+            for i in 0..<(points.count - 1) {
+                let xStart = points[i]
+                let xEnd = points[i + 1]
+                let colorRGB = rgbAt(inData: inData, x: xStart, y: yImg, width: width)
+                ctx.setFillColor(CGColor(
+                    srgbRed: CGFloat(colorRGB.r) / 255.0,
+                    green: CGFloat(colorRGB.g) / 255.0,
+                    blue: CGFloat(colorRGB.b) / 255.0,
+                    alpha: 1.0
+                ))
+                let xCanvas = CGFloat(xStart)
+                let bandW = CGFloat(xEnd - xStart)
+                ctx.fill(CGRect(x: xCanvas, y: CGFloat(yi) * bandHf, width: bandW, height: bandHf))
+            }
+        }
+
+        guard let outCG = ctx.makeImage() else { return nil }
+        return UIImage(cgImage: outCG, scale: image.scale, orientation: .up)
+    }
+
+    struct RGB { var r: UInt8; var g: UInt8; var b: UInt8 }
+
+    func copyRGBAData(from cgImage: CGImage) -> Data? {
+        let width = cgImage.width
+        let height = cgImage.height
+        let bytesPerRow = width * 4
+        var data = Data(count: height * bytesPerRow)
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        data.withUnsafeMutableBytes { ptr in
+            if let ctx = CGContext(data: ptr.baseAddress,
+                                   width: width,
+                                   height: height,
+                                   bitsPerComponent: 8,
+                                   bytesPerRow: bytesPerRow,
+                                   space: colorSpace,
+                                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) {
+                ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+            }
+        }
+        return data
+    }
+
+    func rgbAt(inData: Data, x: Int, y: Int, width: Int) -> RGB {
+        let idx = (y * width + x) * 4
+        let r = inData[idx]
+        let g = inData[idx + 1]
+        let b = inData[idx + 2]
+        return RGB(r: r, g: g, b: b)
+    }
+
+    func rgbToHSB(_ c: RGB) -> (hue: Float, saturation: Float, brightness: Float) {
+        let rf = Float(c.r) / 255.0
+        let gf = Float(c.g) / 255.0
+        let bf = Float(c.b) / 255.0
+        let maxv = max(rf, gf, bf)
+        let minv = min(rf, gf, bf)
+        let delta = maxv - minv
+        let brightness = maxv
+        let saturation = maxv == 0 ? 0 : (delta / maxv)
+        var hue: Float = 0
+        if delta != 0 {
+            if maxv == rf {
+                hue = (gf - bf) / delta
+            } else if maxv == gf {
+                hue = 2 + (bf - rf) / delta
+            } else {
+                hue = 4 + (rf - gf) / delta
+            }
+            hue /= 6
+            if hue < 0 { hue += 1 }
+        }
+        return (hue, saturation, brightness)
     }
 }
