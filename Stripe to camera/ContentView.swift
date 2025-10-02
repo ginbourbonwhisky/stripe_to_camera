@@ -18,11 +18,19 @@ struct CircularText: View {
                 Text(String(character))
                     .font(.system(size: fontSize, weight: .medium))
                     .foregroundColor(.white)
-                    .offset(y: -radius)
-                    .rotationEffect(.degrees(Double(index) * (360.0 / Double(text.count))))
+                    .offset(y: -radius) // 円の外側に配置
+                    .rotationEffect(.degrees(characterAngle(for: index)))
             }
         }
-        .rotationEffect(.degrees(-90)) // 上から開始するように調整
+    }
+    
+    // テキストの中心が上部に来るように角度を計算
+    private func characterAngle(for index: Int) -> Double {
+        let totalCharacters = Double(text.count)
+        let anglePerCharacter = 180.0 / totalCharacters // 上半円に配置
+        let startAngle = -90.0 // 上部を中心とする
+        let offsetAngle = anglePerCharacter * (Double(index) - (totalCharacters - 1) / 2.0)
+        return startAngle + offsetAngle
     }
 }
 
@@ -102,8 +110,8 @@ struct ContentView: View {
                         .overlay(
                             ZStack {
                                 Circle().fill(.white.opacity(0.2)).frame(width: 70, height: 70)
-                                // フィルター名を円周に沿って表示
-                                CircularText(text: filterNameHUD, radius: 28, fontSize: 9)
+                                // フィルター名を円の外側に表示
+                                CircularText(text: filterNameHUD, radius: 50, fontSize: 9)
                             }
                         )
                         .padding(.bottom, 32)
