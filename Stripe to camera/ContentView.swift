@@ -49,37 +49,36 @@ struct ContentView: View {
                     .transition(.opacity)
             }
 
-            // フィルター名HUD
-            Text(filterNameHUD)
-                .font(.caption)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(.black.opacity(0.35))
-                .foregroundStyle(.white)
-                .clipShape(Capsule())
-                .padding(.bottom, 8)
-
-            // 撮影ボタン
-            Button {
-                // シャッター演出: ブラックアウト → 復帰 → 撮影フレームを一瞬表示
-                blackout = true
-                camera.captureStill()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) {
-                    blackout = false
-                    flashPreview = camera.capturedImage
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                        withAnimation(.easeOut(duration: 0.18)) {
-                            flashPreview = nil
+                // 撮影ボタン
+                Button {
+                    // シャッター演出: ブラックアウト → 復帰 → 撮影フレームを一瞬表示
+                    blackout = true
+                    camera.captureStill()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) {
+                        blackout = false
+                        flashPreview = camera.capturedImage
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                            withAnimation(.easeOut(duration: 0.18)) {
+                                flashPreview = nil
+                            }
                         }
                     }
+                } label: {
+                    Circle()
+                        .strokeBorder(.white, lineWidth: 6)
+                        .frame(width: 82, height: 82)
+                        .overlay(
+                            ZStack {
+                                Circle().fill(.white.opacity(0.2)).frame(width: 70, height: 70)
+                                // フィルター名をボタン中央に表示
+                                Text(filterNameHUD)
+                                    .font(.caption2)
+                                    .fontWeight(.medium)
+                                    .foregroundStyle(.white)
+                            }
+                        )
+                        .padding(.bottom, 32)
                 }
-            } label: {
-                Circle()
-                    .strokeBorder(.white, lineWidth: 6)
-                    .frame(width: 82, height: 82)
-                    .overlay(Circle().fill(.white.opacity(0.2)).frame(width: 70, height: 70))
-                    .padding(.bottom, 32)
-            }
         }
         .onAppear {
             camera.start()
