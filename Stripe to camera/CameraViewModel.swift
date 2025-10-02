@@ -296,7 +296,7 @@ private extension CameraViewModel {
         stripe003CurrentStep = 0
         stripe003Timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             guard let self = self else { return }
-            // 各カテゴリごとにランダムに入れ替え
+            // 各カテゴリの位置を大胆に変更してランダムに入れ替え
             self.updateStripe003DrawOrder()
             self.stripe003CurrentStep += 1
             if self.stripe003CurrentStep > self.maxSteps003 {
@@ -577,14 +577,48 @@ private extension CameraViewModel {
         didInitStripe003 = true
     }
     
-    private func updateStripe003DrawOrder() {
-        // 各カテゴリごとにシャッフル
-        stripe003BigBoxes.shuffle()
-        stripe003SmallBoxes.shuffle()
-        stripe003Stripes.shuffle()
+    private func updateStripe003DrawOrder(imageSize: CGSize = CGSize(width: 1280, height: 720)) {
+        // 各カテゴリの位置を大胆に変更（画面からはみ出してもOK）
+        updateBoxPositions(imageSize: imageSize)
         
-        // 描画順序を統合（大きいボックス → 小さいボックス → 縦スリットの順）
-        stripe003DrawOrder = stripe003BigBoxes + stripe003SmallBoxes + stripe003Stripes
+        // 全ボックスを統合して完全にランダムシャッフル
+        var allBoxes = stripe003BigBoxes + stripe003SmallBoxes + stripe003Stripes
+        allBoxes.shuffle()
+        stripe003DrawOrder = allBoxes
+    }
+    
+    private func updateBoxPositions(imageSize: CGSize = CGSize(width: 1280, height: 720)) {
+        let imageWidth = imageSize.width
+        let imageHeight = imageSize.height
+        let margin: CGFloat = 300 // はみ出し許容範囲
+        
+        // 大きいボックスの位置を大胆に変更
+        for i in 0..<stripe003BigBoxes.count {
+            let w = stripe003BigBoxes[i].w
+            let h = stripe003BigBoxes[i].h
+            // 画面からはみ出してもOK
+            let x = CGFloat.random(in: -margin...(imageWidth + margin))
+            let y = CGFloat.random(in: -margin...(imageHeight + margin))
+            stripe003BigBoxes[i] = BoxShape(x: x, y: y, w: w, h: h, area: w * h, isStripe: false)
+        }
+        
+        // 小さいボックスの位置を大胆に変更
+        for i in 0..<stripe003SmallBoxes.count {
+            let w = stripe003SmallBoxes[i].w
+            let h = stripe003SmallBoxes[i].h
+            let x = CGFloat.random(in: -margin...(imageWidth + margin))
+            let y = CGFloat.random(in: -margin...(imageHeight + margin))
+            stripe003SmallBoxes[i] = BoxShape(x: x, y: y, w: w, h: h, area: w * h, isStripe: false)
+        }
+        
+        // 縦スリットの位置を大胆に変更
+        for i in 0..<stripe003Stripes.count {
+            let w = stripe003Stripes[i].w
+            let h = stripe003Stripes[i].h
+            let x = CGFloat.random(in: -margin...(imageWidth + margin))
+            let y = CGFloat.random(in: -margin...(imageHeight + margin))
+            stripe003Stripes[i] = BoxShape(x: x, y: y, w: w, h: h, area: w * h, isStripe: true)
+        }
     }
     
     func applyStripe003Effect(to image: UIImage) -> UIImage? {
