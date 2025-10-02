@@ -50,8 +50,8 @@ final class CameraViewModel: NSObject, ObservableObject {
     //   maxSteps003: 最大表示ステップ数（1秒ごとに入れ替え）
     //   stripeMixProbability003: スリット混ぜ具合（0.0-1.0）
     private let numBigBoxes003: Int = 3
-    private let numSmallBoxes003: Int = 15
-    private let numStripes003: Int = 10
+    private let numSmallBoxes003: Int = 10
+    private let numStripes003: Int = 6
     private let maxSteps003: Int = 10
     private let stripeMixProbability003: Float = 0.35
     private var xVirtualPoints002: [CGFloat] = []   // -10..+10 の内部点
@@ -62,7 +62,9 @@ final class CameraViewModel: NSObject, ObservableObject {
     private var stripe002Index: Int = 0
     
     // stripe003用の状態管理
-    private var stripe003Boxes: [BoxShape] = []
+    private var stripe003BigBoxes: [BoxShape] = []
+    private var stripe003SmallBoxes: [BoxShape] = []
+    private var stripe003Stripes: [BoxShape] = []
     private var stripe003DrawOrder: [BoxShape] = []
     private var stripe003CurrentStep: Int = 0
     private var stripe003Timer: Timer?
@@ -294,8 +296,8 @@ private extension CameraViewModel {
         stripe003CurrentStep = 0
         stripe003Timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             guard let self = self else { return }
-            // 同じ数のボックスをランダムに入れ替え
-            self.stripe003DrawOrder.shuffle()
+            // 各カテゴリごとにランダムに入れ替え
+            self.updateStripe003DrawOrder()
             self.stripe003CurrentStep += 1
             if self.stripe003CurrentStep > self.maxSteps003 {
                 self.stripe003CurrentStep = 0 // リセットして継続
@@ -536,7 +538,9 @@ private extension CameraViewModel {
     private func initializeStripe003(imageSize: CGSize) {
         guard !didInitStripe003 else { return }
         
-        var allBoxes: [BoxShape] = []
+        stripe003BigBoxes.removeAll()
+        stripe003SmallBoxes.removeAll()
+        stripe003Stripes.removeAll()
         
         // 大きい矩形ボックス生成（3倍サイズ）
         for _ in 0..<numBigBoxes003 {
@@ -545,7 +549,7 @@ private extension CameraViewModel {
             let x = CGFloat.random(in: 0...max(0, imageSize.width - w))
             let y = CGFloat.random(in: 0...max(0, imageSize.height - h))
             let area = w * h
-            allBoxes.append(BoxShape(x: x, y: y, w: w, h: h, area: area, isStripe: false))
+            stripe003BigBoxes.append(BoxShape(x: x, y: y, w: w, h: h, area: area, isStripe: false))
         }
         
         // 小さい矩形ボックス生成
@@ -555,7 +559,7 @@ private extension CameraViewModel {
             let x = CGFloat.random(in: 0...max(0, imageSize.width - w))
             let y = CGFloat.random(in: 0...max(0, imageSize.height - h))
             let area = w * h
-            allBoxes.append(BoxShape(x: x, y: y, w: w, h: h, area: area, isStripe: false))
+            stripe003SmallBoxes.append(BoxShape(x: x, y: y, w: w, h: h, area: area, isStripe: false))
         }
         
         // 縦スリット生成
@@ -564,16 +568,24 @@ private extension CameraViewModel {
             let h = CGFloat.random(in: 200...imageSize.height) // 縦に長い
             let x = CGFloat.random(in: 0...max(0, imageSize.width - w))
             let y = CGFloat.random(in: 0...max(0, imageSize.height - h))
-            allBoxes.append(BoxShape(x: x, y: y, w: w, h: h, area: w * h, isStripe: true))
+            stripe003Stripes.append(BoxShape(x: x, y: y, w: w, h: h, area: w * h, isStripe: true))
         }
         
-        // 全体をシャッフル（入れ替えアニメーション用）
-        allBoxes.shuffle()
-        stripe003DrawOrder = allBoxes
+        // 初期の描画順序を設定
+        updateStripe003DrawOrder()
         
         didInitStripe003 = true
     }
     
+    private func updateStripe003DrawOrder() {
+        // 各カテゴリごとにシャッフル
+        stripe003BigBoxes.shuffle()
+        stripe003SmallBoxes.shuffle()
+        stripe003Stripes.shuffle()
+        
+        // 描画順序を統合（大きいボックス → 小さいボックス → 縦スリットの順）
+        stripe003DrawOrder = stripe003BigBoxes + stripe003SmallBoxes + stripe003Stripes
+    }
     
     func applyStripe003Effect(to image: UIImage) -> UIImage? {
         guard let cgImage = image.cgImage else { return nil }
