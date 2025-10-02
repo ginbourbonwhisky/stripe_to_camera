@@ -5,11 +5,13 @@ struct CircularText: View {
     let text: String
     let radius: CGFloat
     let fontSize: CGFloat
+    let rotationOffset: Double
     
-    init(text: String, radius: CGFloat, fontSize: CGFloat = 10) {
+    init(text: String, radius: CGFloat, fontSize: CGFloat = 10, rotationOffset: Double = 0) {
         self.text = text
         self.radius = radius
         self.fontSize = fontSize
+        self.rotationOffset = rotationOffset
     }
     
     var body: some View {
@@ -19,7 +21,7 @@ struct CircularText: View {
                     .font(.system(size: fontSize, weight: .medium))
                     .foregroundColor(.white)
                     .offset(y: -radius) // 円の外側に配置
-                    .rotationEffect(.degrees(characterAngle(for: index)))
+                    .rotationEffect(.degrees(characterAngle(for: index) + rotationOffset))
             }
         }
     }
@@ -41,9 +43,10 @@ struct ContentView: View {
     @State private var flashPreview: UIImage?
     @State private var showFiltered = true
     @State private var toggleTimer: Timer?
-    @State private var filterNameHUD: String = "stripe001"
+    @State private var filterNameHUD: String = "STRIPE001"
     @State private var currentFilterIndex: Int = 0
     @State private var dragAccumX: CGFloat = 0
+    @State private var textRotationOffset: Double = 0
 
     var body: some View {
             ZStack(alignment: .bottom) {
@@ -111,7 +114,7 @@ struct ContentView: View {
                             ZStack {
                                 Circle().fill(.white.opacity(0.2)).frame(width: 70, height: 70)
                                 // フィルター名を円の外側に表示
-                                CircularText(text: filterNameHUD, radius: 50, fontSize: 9)
+                                CircularText(text: filterNameHUD, radius: 50, fontSize: 9, rotationOffset: textRotationOffset)
                             }
                         )
                         .padding(.bottom, 32)
@@ -151,17 +154,29 @@ struct ContentView: View {
         .gesture(
             DragGesture(minimumDistance: 60, coordinateSpace: .local)
                 .onEnded { value in
-                    if value.translation.width > 0 {
-                        // 右スワイプ：前のフィルターへ
-                        currentFilterIndex = (currentFilterIndex - 1 + 3) % 3
-                    } else {
-                        // 左スワイプ：次のフィルターへ
-                        currentFilterIndex = (currentFilterIndex + 1) % 3
+                    // 左回転アニメーション（360度）
+                    withAnimation(.easeInOut(duration: 0.8)) {
+                        textRotationOffset -= 360
                     }
-                    updateFilterSelection()
-                    #if os(iOS)
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    #endif
+                    
+                    // アニメーション完了後にフィルター切り替え
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                        if value.translation.width > 0 {
+                            // 右スワイプ：前のフィルターへ
+                            currentFilterIndex = (currentFilterIndex - 1 + 3) % 3
+                        } else {
+                            // 左スワイプ：次のフィルターへ
+                            currentFilterIndex = (currentFilterIndex + 1) % 3
+                        }
+                        updateFilterSelection()
+                        
+                        // 回転オフセットをリセット
+                        textRotationOffset = 0
+                        
+                        #if os(iOS)
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        #endif
+                    }
                 }
         )
     }
@@ -177,7 +192,7 @@ struct ContentView: View {
     
     private func updateFilterSelection() {
         camera.currentFilterIndex = currentFilterIndex
-        let filterNames = ["stripe001", "stripe002", "stripe003"]
+        let filterNames = ["STRIPE001", "STRIPE002", "STRIPE003"]
         filterNameHUD = filterNames[currentFilterIndex]
         
         // stripe001の場合のみ1秒トグルを有効化
