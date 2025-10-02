@@ -44,12 +44,14 @@ final class CameraViewModel: NSObject, ObservableObject {
     
     // stripe003: 矩形＋縦スリット段階表示（p5.js移植）
     // - 調整ポイント:
-    //   numBoxes003: 通常矩形の数（大きい順で表示）
+    //   numBigBoxes003: 大きい矩形の数（3倍サイズ）
+    //   numSmallBoxes003: 小さい矩形の数
     //   numStripes003: 縦スリットの数（順不同でシャッフル）
-    //   maxSteps003: 最大表示ステップ数（1秒ごとに追加）
+    //   maxSteps003: 最大表示ステップ数（1秒ごとに入れ替え）
     //   stripeMixProbability003: スリット混ぜ具合（0.0-1.0）
-    private let numBoxes003: Int = 20
-    private let numStripes003: Int = 8
+    private let numBigBoxes003: Int = 3
+    private let numSmallBoxes003: Int = 15
+    private let numStripes003: Int = 10
     private let maxSteps003: Int = 10
     private let stripeMixProbability003: Float = 0.35
     private var xVirtualPoints002: [CGFloat] = []   // -10..+10 の内部点
@@ -292,9 +294,11 @@ private extension CameraViewModel {
         stripe003CurrentStep = 0
         stripe003Timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             guard let self = self else { return }
+            // 同じ数のボックスをランダムに入れ替え
+            self.stripe003DrawOrder.shuffle()
             self.stripe003CurrentStep += 1
             if self.stripe003CurrentStep > self.maxSteps003 {
-                self.stopStripe003Timer()
+                self.stripe003CurrentStep = 0 // リセットして継続
             }
         }
     }
@@ -532,60 +536,44 @@ private extension CameraViewModel {
     private func initializeStripe003(imageSize: CGSize) {
         guard !didInitStripe003 else { return }
         
-        var rectBoxes: [BoxShape] = []
-        var stripeBoxes: [BoxShape] = []
+        var allBoxes: [BoxShape] = []
         
-        // 通常の矩形ボックス生成
-        for _ in 0..<numBoxes003 {
+        // 大きい矩形ボックス生成（3倍サイズ）
+        for _ in 0..<numBigBoxes003 {
+            let w = CGFloat.random(in: 120...1200) // 3倍サイズ
+            let h = CGFloat.random(in: 90...900)   // 3倍サイズ
+            let x = CGFloat.random(in: 0...max(0, imageSize.width - w))
+            let y = CGFloat.random(in: 0...max(0, imageSize.height - h))
+            let area = w * h
+            allBoxes.append(BoxShape(x: x, y: y, w: w, h: h, area: area, isStripe: false))
+        }
+        
+        // 小さい矩形ボックス生成
+        for _ in 0..<numSmallBoxes003 {
             let w = CGFloat.random(in: 40...400)
             let h = CGFloat.random(in: 30...300)
-            let x = CGFloat.random(in: 0...(imageSize.width - w))
-            let y = CGFloat.random(in: 0...(imageSize.height - h))
+            let x = CGFloat.random(in: 0...max(0, imageSize.width - w))
+            let y = CGFloat.random(in: 0...max(0, imageSize.height - h))
             let area = w * h
-            rectBoxes.append(BoxShape(x: x, y: y, w: w, h: h, area: area, isStripe: false))
+            allBoxes.append(BoxShape(x: x, y: y, w: w, h: h, area: area, isStripe: false))
         }
         
         // 縦スリット生成
         for _ in 0..<numStripes003 {
             let w = CGFloat.random(in: 5...30) // スリットは細め
             let h = CGFloat.random(in: 200...imageSize.height) // 縦に長い
-            let x = CGFloat.random(in: 0...(imageSize.width - w))
-            let y = CGFloat.random(in: 0...(imageSize.height - h))
-            stripeBoxes.append(BoxShape(x: x, y: y, w: w, h: h, area: w * h, isStripe: true))
+            let x = CGFloat.random(in: 0...max(0, imageSize.width - w))
+            let y = CGFloat.random(in: 0...max(0, imageSize.height - h))
+            allBoxes.append(BoxShape(x: x, y: y, w: w, h: h, area: w * h, isStripe: true))
         }
         
-        // 矩形を面積の大きい順にソート
-        rectBoxes.sort { $0.area > $1.area }
-        
-        // スリットをシャッフル
-        stripeBoxes.shuffle()
-        
-        // マージ：矩形の順序を保ちつつ、確率でスリットを割り込ませる
-        stripe003DrawOrder = mergeBoxesWithStripes(rectBoxes: rectBoxes, stripeBoxes: stripeBoxes)
+        // 全体をシャッフル（入れ替えアニメーション用）
+        allBoxes.shuffle()
+        stripe003DrawOrder = allBoxes
         
         didInitStripe003 = true
     }
     
-    private func mergeBoxesWithStripes(rectBoxes: [BoxShape], stripeBoxes: [BoxShape]) -> [BoxShape] {
-        var result: [BoxShape] = []
-        var rectIndex = 0
-        var stripeIndex = 0
-        
-        while rectIndex < rectBoxes.count || stripeIndex < stripeBoxes.count {
-            let takeStripe = (stripeIndex < stripeBoxes.count) &&
-                           (Float.random(in: 0...1) < stripeMixProbability003 || rectIndex >= rectBoxes.count)
-            
-            if takeStripe {
-                result.append(stripeBoxes[stripeIndex])
-                stripeIndex += 1
-            } else if rectIndex < rectBoxes.count {
-                result.append(rectBoxes[rectIndex])
-                rectIndex += 1
-            }
-        }
-        
-        return result
-    }
     
     func applyStripe003Effect(to image: UIImage) -> UIImage? {
         guard let cgImage = image.cgImage else { return nil }
@@ -608,9 +596,8 @@ private extension CameraViewModel {
             context.draw(leftEdge, in: CGRect(x: 0, y: 0, width: width, height: height))
         }
         
-        // 現在ステップ数分だけボックスを描画
-        let drawCount = min(stripe003CurrentStep, stripe003DrawOrder.count)
-        for i in 0..<drawCount {
+        // 全てのボックスを描画（入れ替えアニメーション）
+        for i in 0..<stripe003DrawOrder.count {
             let box = stripe003DrawOrder[i]
             
             // 元画像上の対応領域（左端2px）を取得してボックス全面に引き伸ばし
