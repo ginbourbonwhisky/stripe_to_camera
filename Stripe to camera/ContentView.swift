@@ -8,18 +8,21 @@ struct ContentView: View {
     @State private var showFiltered = true
     @State private var toggleTimer: Timer?
     @State private var filterNameHUD: String = "stripe001"
+    @State private var currentFilterIndex: Int = 0
     @State private var dragAccumX: CGFloat = 0
 
     var body: some View {
             ZStack(alignment: .bottom) {
-                // stripe002使用時は常にフィルター画像を表示
-                if (!camera.useStripe001), let frame = camera.filteredImage {
+                // フィルター表示ロジック
+                if (currentFilterIndex == 1 || currentFilterIndex == 2), let frame = camera.filteredImage {
+                    // stripe002, stripe003は常にフィルター画像を表示
                     Image(uiImage: frame)
                         .resizable()
                         .scaledToFill()
                         .clipped()
                         .ignoresSafeArea()
-                } else if showFiltered, let frame = camera.filteredImage {
+                } else if currentFilterIndex == 0 && showFiltered, let frame = camera.filteredImage {
+                    // stripe001はトグル表示
                     Image(uiImage: frame)
                         .resizable()
                         .scaledToFill()
@@ -85,10 +88,9 @@ struct ContentView: View {
         }
         .onAppear {
             camera.start()
-            toggleTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    showFiltered.toggle()
-                }
+            // stripe001の場合のみ1秒トグルを有効化
+            if currentFilterIndex == 0 {
+                startToggleTimer()
             }
         }
         .onDisappear {
@@ -114,29 +116,47 @@ struct ContentView: View {
                     .transition(.opacity)
             }
         }
-        // ダブルタップでstripe001/stripe002切替
-        .onTapGesture(count: 2) {
-            camera.useStripe001.toggle()
-            filterNameHUD = camera.useStripe001 ? "stripe001" : "stripe002"
-        }
-        // 横スワイプで切替（左/右どちらでも閾値超でトグル）
+        // 横スワイプで3つのフィルター間を切替
         .gesture(
-            DragGesture(minimumDistance: 16, coordinateSpace: .local)
-                .onChanged { value in
-                    dragAccumX += value.translation.width
-                }
-                .onEnded { _ in
-                    let threshold: CGFloat = 60
-                    if abs(dragAccumX) > threshold {
-                        camera.useStripe001.toggle()
-                        filterNameHUD = camera.useStripe001 ? "stripe001" : "stripe002"
-                        #if os(iOS)
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        #endif
+            DragGesture(minimumDistance: 60, coordinateSpace: .local)
+                .onEnded { value in
+                    if value.translation.width > 0 {
+                        // 右スワイプ：前のフィルターへ
+                        currentFilterIndex = (currentFilterIndex - 1 + 3) % 3
+                    } else {
+                        // 左スワイプ：次のフィルターへ
+                        currentFilterIndex = (currentFilterIndex + 1) % 3
                     }
-                    dragAccumX = 0
+                    updateFilterSelection()
+                    #if os(iOS)
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    #endif
                 }
         )
+    }
+    
+    private func startToggleTimer() {
+        toggleTimer?.invalidate()
+        toggleTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
+            withAnimation(.easeInOut(duration: 0.2)) {
+                showFiltered.toggle()
+            }
+        }
+    }
+    
+    private func updateFilterSelection() {
+        camera.currentFilterIndex = currentFilterIndex
+        let filterNames = ["stripe001", "stripe002", "stripe003"]
+        filterNameHUD = filterNames[currentFilterIndex]
+        
+        // stripe001の場合のみ1秒トグルを有効化
+        if currentFilterIndex == 0 {
+            startToggleTimer()
+        } else {
+            toggleTimer?.invalidate()
+            toggleTimer = nil
+            showFiltered = true // 他のフィルターは常にフィルター表示
+        }
     }
 }
 

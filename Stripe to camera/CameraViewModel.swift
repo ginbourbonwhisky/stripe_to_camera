@@ -3,6 +3,16 @@ import UIKit
 import Combine
 import Photos
 
+// stripe003用のボックス形状定義
+struct BoxShape {
+    let x: CGFloat
+    let y: CGFloat
+    let w: CGFloat
+    let h: CGFloat
+    let area: CGFloat
+    let isStripe: Bool // true=縦スリット, false=通常矩形
+}
+
 final class CameraViewModel: NSObject, ObservableObject {
     @Published var filteredImage: UIImage?
     @Published var capturedImage: UIImage?
@@ -31,22 +41,50 @@ final class CameraViewModel: NSObject, ObservableObject {
     //   素数アニメ: 1.5秒ごとに [0,2,3,5,7,11,13,17,19,23,29,31,37,41,43,47,53] を循環
     private var targetBands002: Int = 0
     private let borderAlpha002: CGFloat = 0.0
+    
+    // stripe003: 矩形＋縦スリット段階表示（p5.js移植）
+    // - 調整ポイント:
+    //   numBoxes003: 通常矩形の数（大きい順で表示）
+    //   numStripes003: 縦スリットの数（順不同でシャッフル）
+    //   maxSteps003: 最大表示ステップ数（1秒ごとに追加）
+    //   stripeMixProbability003: スリット混ぜ具合（0.0-1.0）
+    private let numBoxes003: Int = 20
+    private let numStripes003: Int = 8
+    private let maxSteps003: Int = 10
+    private let stripeMixProbability003: Float = 0.35
     private var xVirtualPoints002: [CGFloat] = []   // -10..+10 の内部点
     private var lastTargetBands002: Int = -1
     private var didSeedStripe002 = false
     private var stripe002Timer: Timer?
     private let stripe002Primes: [Int] = [0,2,3,5,7,11,13,17,19,23,29,31,37,41,43,47,53]
     private var stripe002Index: Int = 0
+    
+    // stripe003用の状態管理
+    private var stripe003Boxes: [BoxShape] = []
+    private var stripe003DrawOrder: [BoxShape] = []
+    private var stripe003CurrentStep: Int = 0
+    private var stripe003Timer: Timer?
+    private var didInitStripe003 = false
 
-    // フィルタ切替: true=stripe001, false=stripe002（必要ならUI側から切替）
-    var useStripe001: Bool = true {
+    // フィルタ切替: 0=stripe001, 1=stripe002, 2=stripe003
+    var currentFilterIndex: Int = 0 {
         didSet {
-            if useStripe001 {
-                stopStripe002Timer()
-            } else {
+            stopAllTimers()
+            switch currentFilterIndex {
+            case 1:
                 startStripe002Timer()
+            case 2:
+                startStripe003Timer()
+            default:
+                break
             }
         }
+    }
+    
+    // 後方互換性のため
+    var useStripe001: Bool {
+        get { currentFilterIndex == 0 }
+        set { currentFilterIndex = newValue ? 0 : 1 }
     }
 
     override init() {
@@ -183,7 +221,8 @@ extension CameraViewModel: AVCaptureVideoDataOutputSampleBufferDelegate {
 
         let ui = UIImage(cgImage: cg, scale: UIScreen.main.scale, orientation: .up)
 
-        if useStripe001 {
+        switch currentFilterIndex {
+        case 0:
             // stripe001: 明度/彩度の変化で横方向にセグメント化
             if let banded = applyRowSegmentEffect(to: ui,
                                                   brightnessThreshold: brightnessThreshold,
@@ -195,7 +234,7 @@ extension CameraViewModel: AVCaptureVideoDataOutputSampleBufferDelegate {
                 }
                 return
             }
-        } else {
+        case 1:
             // stripe002: ランダム分割の縦帯（左端色で塗る）
             if let banded = applyVerticalBandEffect002(to: ui,
                                                        targetBands: targetBands002,
@@ -207,6 +246,17 @@ extension CameraViewModel: AVCaptureVideoDataOutputSampleBufferDelegate {
                 }
                 return
             }
+        case 2:
+            // stripe003: 矩形＋縦スリット段階表示
+            if let boxed = applyStripe003Effect(to: ui) {
+                DispatchQueue.main.async {
+                    self.originalImage = nil
+                    self.filteredImage = boxed
+                }
+                return
+            }
+        default:
+            break
         }
         DispatchQueue.main.async {
             self.originalImage = original
@@ -235,6 +285,30 @@ private extension CameraViewModel {
         stripe002Timer = nil
         stripe002Index = 0
         targetBands002 = 0
+    }
+    
+    private func startStripe003Timer() {
+        stripe003Timer?.invalidate()
+        stripe003CurrentStep = 0
+        stripe003Timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+            self.stripe003CurrentStep += 1
+            if self.stripe003CurrentStep > self.maxSteps003 {
+                self.stopStripe003Timer()
+            }
+        }
+    }
+    
+    private func stopStripe003Timer() {
+        stripe003Timer?.invalidate()
+        stripe003Timer = nil
+        stripe003CurrentStep = 0
+        didInitStripe003 = false
+    }
+    
+    private func stopAllTimers() {
+        stopStripe002Timer()
+        stopStripe003Timer()
     }
     func applyRowSegmentEffect(to image: UIImage,
                                brightnessThreshold: Float,
@@ -451,5 +525,106 @@ private extension CameraViewModel {
 
         guard let outCG = ctx.makeImage() else { return nil }
         return UIImage(cgImage: outCG, scale: image.scale, orientation: .up)
+    }
+    
+    // MARK: - stripe003 実装
+    
+    private func initializeStripe003(imageSize: CGSize) {
+        guard !didInitStripe003 else { return }
+        
+        var rectBoxes: [BoxShape] = []
+        var stripeBoxes: [BoxShape] = []
+        
+        // 通常の矩形ボックス生成
+        for _ in 0..<numBoxes003 {
+            let w = CGFloat.random(in: 40...400)
+            let h = CGFloat.random(in: 30...300)
+            let x = CGFloat.random(in: 0...(imageSize.width - w))
+            let y = CGFloat.random(in: 0...(imageSize.height - h))
+            let area = w * h
+            rectBoxes.append(BoxShape(x: x, y: y, w: w, h: h, area: area, isStripe: false))
+        }
+        
+        // 縦スリット生成
+        for _ in 0..<numStripes003 {
+            let w = CGFloat.random(in: 5...30) // スリットは細め
+            let h = CGFloat.random(in: 200...imageSize.height) // 縦に長い
+            let x = CGFloat.random(in: 0...(imageSize.width - w))
+            let y = CGFloat.random(in: 0...(imageSize.height - h))
+            stripeBoxes.append(BoxShape(x: x, y: y, w: w, h: h, area: w * h, isStripe: true))
+        }
+        
+        // 矩形を面積の大きい順にソート
+        rectBoxes.sort { $0.area > $1.area }
+        
+        // スリットをシャッフル
+        stripeBoxes.shuffle()
+        
+        // マージ：矩形の順序を保ちつつ、確率でスリットを割り込ませる
+        stripe003DrawOrder = mergeBoxesWithStripes(rectBoxes: rectBoxes, stripeBoxes: stripeBoxes)
+        
+        didInitStripe003 = true
+    }
+    
+    private func mergeBoxesWithStripes(rectBoxes: [BoxShape], stripeBoxes: [BoxShape]) -> [BoxShape] {
+        var result: [BoxShape] = []
+        var rectIndex = 0
+        var stripeIndex = 0
+        
+        while rectIndex < rectBoxes.count || stripeIndex < stripeBoxes.count {
+            let takeStripe = (stripeIndex < stripeBoxes.count) &&
+                           (Float.random(in: 0...1) < stripeMixProbability003 || rectIndex >= rectBoxes.count)
+            
+            if takeStripe {
+                result.append(stripeBoxes[stripeIndex])
+                stripeIndex += 1
+            } else if rectIndex < rectBoxes.count {
+                result.append(rectBoxes[rectIndex])
+                rectIndex += 1
+            }
+        }
+        
+        return result
+    }
+    
+    func applyStripe003Effect(to image: UIImage) -> UIImage? {
+        guard let cgImage = image.cgImage else { return nil }
+        let width = cgImage.width
+        let height = cgImage.height
+        
+        initializeStripe003(imageSize: CGSize(width: width, height: height))
+        
+        guard let colorSpace = cgImage.colorSpace else { return nil }
+        guard let context = CGContext(data: nil,
+                                    width: width,
+                                    height: height,
+                                    bitsPerComponent: 8,
+                                    bytesPerRow: width * 4,
+                                    space: colorSpace,
+                                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        
+        // 背景：元画像の左端1pxを全画面に引き伸ばし
+        if let leftEdge = cgImage.cropping(to: CGRect(x: 0, y: 0, width: 1, height: height)) {
+            context.draw(leftEdge, in: CGRect(x: 0, y: 0, width: width, height: height))
+        }
+        
+        // 現在ステップ数分だけボックスを描画
+        let drawCount = min(stripe003CurrentStep, stripe003DrawOrder.count)
+        for i in 0..<drawCount {
+            let box = stripe003DrawOrder[i]
+            
+            // 元画像上の対応領域（左端2px）を取得してボックス全面に引き伸ばし
+            let sx = Int(box.x * CGFloat(width) / CGFloat(width))
+            let sy = Int(box.y * CGFloat(height) / CGFloat(height))
+            let sh = Int(box.h * CGFloat(height) / CGFloat(height))
+            
+            if let sourceRegion = cgImage.cropping(to: CGRect(x: sx, y: sy, width: min(2, width - sx), height: sh)) {
+                let destRect = CGRect(x: box.x, y: CGFloat(height) - box.y - box.h, width: box.w, height: box.h)
+                context.draw(sourceRegion, in: destRect)
+            }
+        }
+        
+        guard let outputCGImage = context.makeImage() else { return nil }
+        return UIImage(cgImage: outputCGImage)
     }
 }
