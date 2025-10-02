@@ -27,8 +27,8 @@ struct CircularText: View {
     // テキストの中心が上部に来るように角度を計算
     private func characterAngle(for index: Int) -> Double {
         let totalCharacters = Double(text.count)
-        let anglePerCharacter = 180.0 / totalCharacters // 上半円に配置
-        let startAngle = -90.0 // 上部を中心とする
+        let anglePerCharacter = 120.0 / totalCharacters // 120度範囲に配置
+        let startAngle = 0.0 // 真上（0度）を中心とする
         let offsetAngle = anglePerCharacter * (Double(index) - (totalCharacters - 1) / 2.0)
         return startAngle + offsetAngle
     }
