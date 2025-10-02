@@ -16,21 +16,24 @@ struct ContentView: View {
                 if (!camera.useStripe001), let frame = camera.filteredImage {
                     Image(uiImage: frame)
                         .resizable()
-                        .scaledToFit()
+                        .scaledToFill()
+                        .clipped()
                         .ignoresSafeArea()
                 } else if showFiltered, let frame = camera.filteredImage {
-                Image(uiImage: frame)
-                    .resizable()
-                        .scaledToFit()
-                    .ignoresSafeArea()
-            } else if let raw = camera.originalImage {
-                Image(uiImage: raw)
-                    .resizable()
-                        .scaledToFit()
-                    .ignoresSafeArea()
-            } else {
-                Color.black.ignoresSafeArea()
-            }
+                    Image(uiImage: frame)
+                        .resizable()
+                        .scaledToFill()
+                        .clipped()
+                        .ignoresSafeArea()
+                } else if let raw = camera.originalImage {
+                    Image(uiImage: raw)
+                        .resizable()
+                        .scaledToFill()
+                        .clipped()
+                        .ignoresSafeArea()
+                } else {
+                    Color.black.ignoresSafeArea()
+                }
 
             // ブラックアウト演出
             Color.black
