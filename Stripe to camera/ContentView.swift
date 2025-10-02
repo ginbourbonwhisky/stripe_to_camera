@@ -1,5 +1,31 @@
 import SwiftUI
 
+// 円周に沿ってテキストを表示するカスタムビュー
+struct CircularText: View {
+    let text: String
+    let radius: CGFloat
+    let fontSize: CGFloat
+    
+    init(text: String, radius: CGFloat, fontSize: CGFloat = 10) {
+        self.text = text
+        self.radius = radius
+        self.fontSize = fontSize
+    }
+    
+    var body: some View {
+        ZStack {
+            ForEach(Array(text.enumerated()), id: \.offset) { index, character in
+                Text(String(character))
+                    .font(.system(size: fontSize, weight: .medium))
+                    .foregroundColor(.white)
+                    .offset(y: -radius)
+                    .rotationEffect(.degrees(Double(index) * (360.0 / Double(text.count))))
+            }
+        }
+        .rotationEffect(.degrees(-90)) // 上から開始するように調整
+    }
+}
+
 struct ContentView: View {
     @StateObject private var camera = CameraViewModel()
     @State private var showPreview = false
@@ -76,11 +102,8 @@ struct ContentView: View {
                         .overlay(
                             ZStack {
                                 Circle().fill(.white.opacity(0.2)).frame(width: 70, height: 70)
-                                // フィルター名をボタン中央に表示
-                                Text(filterNameHUD)
-                                    .font(.caption2)
-                                    .fontWeight(.medium)
-                                    .foregroundStyle(.white)
+                                // フィルター名を円周に沿って表示
+                                CircularText(text: filterNameHUD, radius: 28, fontSize: 9)
                             }
                         )
                         .padding(.bottom, 32)
